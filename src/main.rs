@@ -99,6 +99,91 @@ fn render_ppm(path: &Path, canvas: Canvas) {
     }
 }
 
+struct Sphere {
+    position: (f64, f64),
+    radius: f64,
+}
+
+impl Sphere {
+    pub fn new(position: (f64, f64), radius: f64) -> Sphere {
+        Sphere { position, radius }
+    }
+}
+
+struct Vector {
+    x: f64,
+    y: f64,
+    z: f64,
+    n: f64,
+}
+
+impl Vector {
+    pub fn new(x: f64, y: f64, z: f64) -> Vector {
+        Vector { x, y, z, n: 1.0 }
+    }
+
+    pub fn new_with_length(x: f64, y: f64, z: f64, n: f64) -> Vector {
+        Vector { x, y, z, n }
+    }
+}
+
+struct Camera {
+    plane_z: Vector,
+    plane_x: Vector,
+    pos: (f64, f64),
+    width: usize,
+    height: usize,
+}
+
+impl Camera {
+    pub fn new(width: usize, height: usize) -> Camera {
+        Canvas {
+            plane_z: default_z,
+            plane_x: default_x,
+            pos: (0.0, 0.0),
+            width,
+            height,
+        }
+    }
+
+    pub fn with_pos(&mut self, x: f64, y: f64) -> &mut Self {
+        self.pos = (x, y);
+        self
+    }
+
+    pub fn with_plane_z(&mut self, vec: Vector) -> &mut Self {
+        self.plane_z = vec;
+        self
+    }
+
+    pub fn with_plane_x(&mut self, vec: Vector) -> &mut Self {
+        self.plane_x = vec;
+        self
+    }
+
+    pub fn raytrace(&self, objects: Vec<Sphere>) -> Canvas {
+        let mut canvas = Canvas::new(self.width, self.height);
+
+        for (x, y) in iproduct!(0..self.width, 0..self.height) {}
+
+        canvas
+    }
+}
+
+struct Scene {
+    objects: Vec<Sphere>,
+    camera: Camera,
+}
+
+impl Scene {
+    pub fn raytrace(&self) -> Canvas {
+        // iterate over each of the pixels
+        // cast into the scene
+        // see if intersect with any objects
+        //self.camera.trace(&self.objects)
+    }
+}
+
 fn main() {
     let mut canvas = Canvas::new(20, 20);
 
