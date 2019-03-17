@@ -7,39 +7,23 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-enum Colour {
-    BLACK,
-    WHITE,
-}
-
 struct Pixel {
-    colour: Colour,
+    colour: u8,
 }
 
 impl Pixel {
     pub fn white() -> Pixel {
-        Pixel {
-            colour: Colour::WHITE,
-        }
+        Pixel { colour: 255 }
     }
 
     pub fn black() -> Pixel {
-        Pixel {
-            colour: Colour::BLACK,
-        }
+        Pixel { colour: 0 }
     }
 }
 
 impl fmt::Display for Pixel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self.colour {
-                Colour::BLACK => 1,
-                _ => 0,
-            }
-        )
+        write!(f, "{}", self.colour)
     }
 }
 
@@ -75,9 +59,9 @@ impl Canvas {
         self.data.get_mut(x).and_then(|ys| ys.get_mut(y))
     }
 
-    pub fn ink(&mut self, x: usize, y: usize) -> bool {
+    pub fn ink(&mut self, x: usize, y: usize, intensity: u8) -> bool {
         if let Some(pixel) = self.get_mut(x, y) {
-            pixel.colour = Colour::BLACK;
+            pixel.colour = intensity;
             true
         } else {
             false
@@ -93,7 +77,7 @@ fn render_ppm(path: &Path, canvas: Canvas) {
         Ok(file) => file,
     };
 
-    write!(file, "P1\n{} {}\n", canvas.width, canvas.height).unwrap();
+    write!(file, "P2\n{} {}\n255\n", canvas.width, canvas.height).unwrap();
     for (x, y) in iproduct!(0..canvas.height, 0..canvas.width) {
         write!(file, "{} ", canvas.get(x, y).unwrap()).unwrap();
     }
@@ -109,7 +93,7 @@ impl Sphere {
         Sphere { position, radius }
     }
 
-    pub fn collides_with(&self, ray: &Ray) -> bool {
+    pub fn collides_with(&self, ray: &Ray) -> Option<Vector> {
         let mut l = ray.direction.clone();
         l.normalise();
 
@@ -121,7 +105,25 @@ impl Sphere {
 
         let indicator = l.dot(o_minus_c).powi(2) - (o_minus_c.magnitude().powi(2) - r.powi(2));
 
-        indicator >= 0.0
+        if indicator == 0.0 {
+            let d = -l.dot(o_minus_c);
+            Some(ray.shine_to(d))
+        } else if indicator > 0.0 {
+            let d1 = (-l.dot(o_minus_c)) + indicator.sqrt();
+            let d2 = (-l.dot(o_minus_c)) - indicator.sqrt();
+
+            if 0.0 <= d1 && 0.0 <= d2 {
+                Some(ray.shine_to(d1.min(d2)))
+            } else if d1 >= 0.0 {
+                Some(ray.shine_to(d1))
+            } else if d2 >= 0.0 {
+                Some(ray.shine_to(d2))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }
 
@@ -226,6 +228,13 @@ impl Ray {
     pub fn new(origin: Vector, direction: Vector) -> Ray {
         Ray { origin, direction }
     }
+
+    pub fn shine_to(&self, distance: f64) -> Vector {
+        let mut result = self.origin.clone();
+        result.add(&self.direction);
+
+        result
+    }
 }
 
 impl Camera {
@@ -258,7 +267,22 @@ impl Camera {
         self
     }
 
-    pub fn raytrace(&self, objects: &Vec<Sphere>) -> Canvas {
+    fn cast_ray(ray: &Ray, light_distance: f64, objects: &Vec<Sphere>) -> u8 {
+        for object in objects.iter() {
+            if let Some(mut collision) = object.collides_with(&ray) {
+                let collision_distance = collision.minus(&ray.origin).magnitude();
+                println!("{} < {}?", collision_distance, light_distance);
+                if collision_distance < light_distance {
+                    println!("Collision distance was {}", collision_distance);
+                    return 0;
+                }
+            }
+        }
+
+        255
+    }
+
+    pub fn raytrace(&self, objects: &Vec<Sphere>, lights: &Vec<Light>) -> Canvas {
         let mut canvas = Canvas::new(self.pixels_width, self.pixels_height);
 
         let mut plane_y = self.plane_z.clone();
@@ -276,8 +300,22 @@ impl Camera {
             ray.origin.add(offset_y.mult((y as f64) * height_step));
 
             for object in objects.iter() {
-                if object.collides_with(&ray) {
-                    canvas.ink(x, y);
+                if let Some(collision) = object.collides_with(&ray) {
+                    let mut intensity = 0;
+
+                    for light in lights.iter() {
+                        let mut dir = light.position.clone();
+                        let origin = collision.clone();
+                        dir.minus(&collision);
+                        let light_distance = dir.magnitude();
+                        dir.normalise();
+
+                        let ray = Ray::new(origin, dir);
+
+                        intensity = Camera::cast_ray(&ray, light_distance, &objects);
+                    }
+
+                    canvas.ink(x, y, intensity);
                     break;
                 }
             }
@@ -291,15 +329,31 @@ impl Camera {
     }
 }
 
+struct Light {
+    position: Vector,
+    intensity: f64,
+}
+
+impl Light {
+    pub fn new(position: Vector, intensity: f64) -> Light {
+        Light {
+            position,
+            intensity,
+        }
+    }
+}
+
 struct Scene {
     objects: Vec<Sphere>,
     camera: Camera,
+    lights: Vec<Light>,
 }
 
 impl Scene {
     pub fn new(camera: Camera) -> Scene {
         Scene {
             objects: vec![],
+            lights: vec![],
             camera,
         }
     }
@@ -309,8 +363,13 @@ impl Scene {
         self
     }
 
+    pub fn add_light(&mut self, l: Light) -> &mut Self {
+        self.lights.push(l);
+        self
+    }
+
     pub fn raytrace(&self) -> Canvas {
-        self.camera.raytrace(&self.objects)
+        self.camera.raytrace(&self.objects, &self.lights)
     }
 }
 
@@ -319,13 +378,16 @@ fn main() {
     let sphere2 = Sphere::new(Vector::new(7.0, 7.0, 5.0), 0.2);
     let sphere3 = Sphere::new(Vector::new(3.0, 3.0, 5.0), 0.5);
 
-    let camera = Camera::new(10.0, 10.0, 512, 512);
+    let light = Light::new(Vector::new(5.0, 9.0, 1.0), 1.0);
+
+    let camera = Camera::new(10.0, 10.0, 128, 128);
 
     let mut scene = Scene::new(camera);
     scene
         .add_object(sphere1)
         .add_object(sphere2)
-        .add_object(sphere3);
+        .add_object(sphere3)
+        .add_light(light);
 
     let canvas = scene.raytrace();
 
