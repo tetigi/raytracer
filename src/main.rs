@@ -108,9 +108,24 @@ impl Sphere {
     pub fn new(position: Vector, radius: f64) -> Sphere {
         Sphere { position, radius }
     }
+
+    pub fn collides_with(&self, ray: &Ray) -> bool {
+        let mut l = ray.direction.clone();
+        l.normalise();
+
+        let c = &self.position;
+        let r = &self.radius;
+        let mut o = ray.origin.clone();
+
+        let o_minus_c = o.minus(&c);
+
+        let indicator = l.dot(o_minus_c).powi(2) - (o_minus_c.magnitude().powi(2) - r.powi(2));
+
+        indicator >= 0.0
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Vector {
     x: f64,
     y: f64,
@@ -127,14 +142,68 @@ impl Vector {
         Vector { x, y, z, n }
     }
 
-    pub fn cross(&self, other: &Vector) -> Vector {
-        let x = (self.y * other.z) - (self.z * other.y);
-        let y = (self.z * other.x) - (self.x * other.z);
-        let z = (self.x * other.y) - (self.y * other.x);
+    pub fn cross(&mut self, other: &Vector) -> &mut Self {
+        self.x = (self.y * other.z) - (self.z * other.y);
+        self.y = (self.z * other.x) - (self.x * other.z);
+        self.z = (self.x * other.y) - (self.y * other.x);
 
-        let n = ((x * x) + (y * y) + (z * z)).sqrt();
+        self.n = ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt();
+        self
+    }
 
-        Vector::new_with_length(x, y, z, n)
+    pub fn dot(&self, other: &Vector) -> f64 {
+        (self.x * other.x) + (self.y * other.y) + (self.z * other.z)
+    }
+
+    pub fn add(&mut self, other: &Vector) -> &mut Self {
+        self.x += other.x;
+        self.y += other.y;
+        self.z += other.z;
+
+        self.n = ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt();
+        self
+    }
+
+    pub fn minus(&mut self, other: &Vector) -> &mut Self {
+        self.x -= other.x;
+        self.y -= other.y;
+        self.z -= other.z;
+
+        self.n = ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt();
+        self
+    }
+
+    pub fn mult(&mut self, magnitude: f64) -> &mut Self {
+        self.x *= magnitude;
+        self.y *= magnitude;
+        self.z *= magnitude;
+
+        self.n *= magnitude;
+        self.n = self.n.abs();
+
+        self
+    }
+
+    pub fn normalise(&mut self) -> &mut Self {
+        self.x /= self.n;
+        self.y /= self.n;
+        self.z /= self.n;
+        self.n = 1.0;
+
+        self
+    }
+
+    pub fn magnitude(&self) -> f64 {
+        self.n
+    }
+
+    pub fn set_as(&mut self, other: &Vector) -> &mut Self {
+        self.x = other.x;
+        self.y = other.y;
+        self.z = other.z;
+        self.n = other.n;
+
+        self
     }
 }
 
@@ -146,6 +215,17 @@ struct Camera {
     height: f64,
     pixels_width: usize,
     pixels_height: usize,
+}
+
+struct Ray {
+    direction: Vector,
+    origin: Vector,
+}
+
+impl Ray {
+    pub fn new(origin: Vector, direction: Vector) -> Ray {
+        Ray { origin, direction }
+    }
 }
 
 impl Camera {
@@ -178,11 +258,33 @@ impl Camera {
         self
     }
 
-    pub fn raytrace(&self, objects: Vec<Sphere>) -> Canvas {
+    pub fn raytrace(&self, objects: &Vec<Sphere>) -> Canvas {
         let mut canvas = Canvas::new(self.pixels_width, self.pixels_height);
 
+        let mut plane_y = self.plane_z.clone();
+        plane_y.cross(&self.plane_x);
+
+        let width_step = self.width / (self.pixels_width as f64);
+        let height_step = self.height / (self.pixels_height as f64);
+
+        let mut ray = Ray::new(Vector::new(0.0, 0.0, 0.0), self.plane_z.clone());
+        let mut offset_x = self.plane_x.clone();
+        let mut offset_y = plane_y.clone();
+
         for (x, y) in iproduct!(0..self.pixels_width, 0..self.pixels_height) {
-            //let plane_y = 0
+            ray.origin.add(offset_x.mult((x as f64) * width_step));
+            ray.origin.add(offset_y.mult((y as f64) * height_step));
+
+            for object in objects.iter() {
+                if object.collides_with(&ray) {
+                    canvas.ink(x, y);
+                    break;
+                }
+            }
+
+            ray.origin.set_as(&self.plane_z);
+            offset_x.set_as(&self.plane_x);
+            offset_y.set_as(&plane_y);
         }
 
         canvas
@@ -208,23 +310,12 @@ impl Scene {
     }
 
     pub fn raytrace(&self) -> Canvas {
-        // iterate over each of the pixels
-        // cast into the scene
-        // see if intersect with any objects
-        //self.camera.trace(&self.objects)
-        panic!()
+        self.camera.raytrace(&self.objects)
     }
 }
 
 fn main() {
-    //let mut canvas = Canvas::new(20, 20);
-
-    //for (x, y) in iproduct!(0..20, 0..20).step_by(2) {
-    //    canvas.ink(x, y);
-    //}
-
-    /*
-    let sphere1 = Sphere::new(Vector::new(5.0, 5.0, 5.0), 1.0);
+    let sphere1 = Sphere::new(Vector::new(5.0, 5.0, 5.0), 2.0);
     let sphere2 = Sphere::new(Vector::new(7.0, 7.0, 5.0), 0.2);
     let sphere3 = Sphere::new(Vector::new(3.0, 3.0, 5.0), 0.5);
 
@@ -239,10 +330,4 @@ fn main() {
     let canvas = scene.raytrace();
 
     render_ppm(Path::new("/tmp/out.pbm"), canvas);
-    */
-
-    let v1 = Vector::new(0.0, 0.0, 1.0);
-    let v2 = Vector::new(1.0, 0.0, 0.0);
-
-    println!("{:?} x {:?} = {:?}", v1, v2, v1.cross(&v2));
 }
