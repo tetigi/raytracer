@@ -94,7 +94,7 @@ impl Sphere {
         Sphere { position, radius }
     }
 
-    pub fn collides_with(&self, ray: &Ray) -> Option<Vector> {
+    pub fn collides_with(&self, ray: &Ray) -> Vec<Vector> {
         let mut l = ray.direction.clone();
         l.normalise();
 
@@ -108,22 +108,22 @@ impl Sphere {
 
         if indicator == 0.0 {
             let d = -l.dot(o_minus_c);
-            Some(ray.shine_to(d))
+            vec![ray.shine_to(d)]
         } else if indicator > 0.0 {
             let d1 = (-l.dot(o_minus_c)) + indicator.sqrt();
             let d2 = (-l.dot(o_minus_c)) - indicator.sqrt();
 
             if 0.0 <= d1 && 0.0 <= d2 {
-                Some(ray.shine_to(d1.min(d2)))
+                vec![ray.shine_to(d1.min(d2)), ray.shine_to(d1.max(d2))]
             } else if d1 >= 0.0 {
-                Some(ray.shine_to(d1))
+                vec![ray.shine_to(d1)]
             } else if d2 >= 0.0 {
-                Some(ray.shine_to(d2))
+                vec![ray.shine_to(d2)]
             } else {
-                None
+                vec![]
             }
         } else {
-            None
+            vec![]
         }
     }
 }
@@ -254,6 +254,8 @@ impl Ray {
     }
 }
 
+const EPSILON: f64 = 0.000000001;
+
 impl Camera {
     pub fn new(width: f64, height: f64, pixels_width: usize, pixels_height: usize) -> Camera {
         let default_z = Vector::new(0.0, 0.0, 1.0);
@@ -286,15 +288,17 @@ impl Camera {
 
     fn cast_ray(ray: &Ray, light_distance: f64, objects: &Vec<Sphere>) -> u8 {
         for object in objects.iter() {
-            if let Some(mut collision) = object.collides_with(&ray) {
+            let collisions = object.collides_with(&ray);
+
+            for mut collision in collisions {
                 let collision_distance = collision.minus(&ray.origin).magnitude();
-                if collision_distance < light_distance {
+                if collision_distance > EPSILON && collision_distance < light_distance {
                     return 0;
                 }
             }
         }
 
-        255
+        255 - (25 * (light_distance as u8)) // TODO make something better
     }
 
     pub fn raytrace(&self, objects: &Vec<Sphere>, lights: &Vec<Light>) -> Canvas {
@@ -315,7 +319,7 @@ impl Camera {
             ray.origin.add(offset_y.mult((y as f64) * height_step));
 
             for object in objects.iter() {
-                if let Some(collision) = object.collides_with(&ray) {
+                if let Some(collision) = object.collides_with(&ray).first() {
                     let mut intensity = 0;
 
                     for light in lights.iter() {
@@ -390,18 +394,18 @@ impl Scene {
 
 fn main() {
     let sphere1 = Sphere::new(Vector::new(5.0, 5.0, 5.0), 2.0);
-    //let sphere2 = Sphere::new(Vector::new(7.0, 7.0, 5.0), 0.2);
-    //let sphere3 = Sphere::new(Vector::new(3.0, 3.0, 5.0), 0.5);
+    let sphere2 = Sphere::new(Vector::new(7.0, 7.0, 5.0), 0.2);
+    let sphere3 = Sphere::new(Vector::new(3.0, 3.0, 5.0), 0.5);
 
     let light = Light::new(Vector::new(5.0, 9.0, 1.0), 1.0);
 
-    let camera = Camera::new(10.0, 10.0, 4096, 4096);
+    let camera = Camera::new(10.0, 10.0, 1024, 1024);
 
     let mut scene = Scene::new(camera);
     scene
         .add_object(sphere1)
-        //.add_object(sphere2)
-        //.add_object(sphere3)
+        .add_object(sphere2)
+        .add_object(sphere3)
         .add_light(light);
 
     let canvas = scene.raytrace();
