@@ -83,6 +83,7 @@ fn render_ppm(path: &Path, canvas: Canvas) {
     }
 }
 
+#[derive(Debug)]
 struct Sphere {
     position: Vector,
     radius: f64,
@@ -145,9 +146,13 @@ impl Vector {
     }
 
     pub fn cross(&mut self, other: &Vector) -> &mut Self {
-        self.x = (self.y * other.z) - (self.z * other.y);
-        self.y = (self.z * other.x) - (self.x * other.z);
-        self.z = (self.x * other.y) - (self.y * other.x);
+        let new_x = (self.y * other.z) - (self.z * other.y);
+        let new_y = (self.z * other.x) - (self.x * other.z);
+        let new_z = (self.x * other.y) - (self.y * other.x);
+
+        self.x = new_x;
+        self.y = new_y;
+        self.z = new_z;
 
         self.n = ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt();
         self
@@ -199,6 +204,15 @@ impl Vector {
         self.n
     }
 
+    pub fn set(&mut self, x: f64, y: f64, z: f64) -> &mut Self {
+        self.x = x;
+        self.y = y;
+        self.z = z;
+
+        self.n = ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt();
+        self
+    }
+
     pub fn set_as(&mut self, other: &Vector) -> &mut Self {
         self.x = other.x;
         self.y = other.y;
@@ -219,6 +233,7 @@ struct Camera {
     pixels_height: usize,
 }
 
+#[derive(Debug)]
 struct Ray {
     direction: Vector,
     origin: Vector,
@@ -231,7 +246,9 @@ impl Ray {
 
     pub fn shine_to(&self, distance: f64) -> Vector {
         let mut result = self.origin.clone();
-        result.add(&self.direction);
+        let mut cast = self.direction.clone();
+        cast.mult(distance);
+        result.add(&cast);
 
         result
     }
@@ -240,7 +257,7 @@ impl Ray {
 impl Camera {
     pub fn new(width: f64, height: f64, pixels_width: usize, pixels_height: usize) -> Camera {
         let default_z = Vector::new(0.0, 0.0, 1.0);
-        let default_x = Vector::new(1.0, 0.0, 1.0);
+        let default_x = Vector::new(1.0, 0.0, 0.0);
         Camera {
             plane_z: default_z,
             plane_x: default_x,
@@ -271,9 +288,7 @@ impl Camera {
         for object in objects.iter() {
             if let Some(mut collision) = object.collides_with(&ray) {
                 let collision_distance = collision.minus(&ray.origin).magnitude();
-                println!("{} < {}?", collision_distance, light_distance);
                 if collision_distance < light_distance {
-                    println!("Collision distance was {}", collision_distance);
                     return 0;
                 }
             }
@@ -320,7 +335,7 @@ impl Camera {
                 }
             }
 
-            ray.origin.set_as(&self.plane_z);
+            ray.origin.set(0.0, 0.0, 0.0);
             offset_x.set_as(&self.plane_x);
             offset_y.set_as(&plane_y);
         }
@@ -375,18 +390,18 @@ impl Scene {
 
 fn main() {
     let sphere1 = Sphere::new(Vector::new(5.0, 5.0, 5.0), 2.0);
-    let sphere2 = Sphere::new(Vector::new(7.0, 7.0, 5.0), 0.2);
-    let sphere3 = Sphere::new(Vector::new(3.0, 3.0, 5.0), 0.5);
+    //let sphere2 = Sphere::new(Vector::new(7.0, 7.0, 5.0), 0.2);
+    //let sphere3 = Sphere::new(Vector::new(3.0, 3.0, 5.0), 0.5);
 
     let light = Light::new(Vector::new(5.0, 9.0, 1.0), 1.0);
 
-    let camera = Camera::new(10.0, 10.0, 128, 128);
+    let camera = Camera::new(10.0, 10.0, 4096, 4096);
 
     let mut scene = Scene::new(camera);
     scene
         .add_object(sphere1)
-        .add_object(sphere2)
-        .add_object(sphere3)
+        //.add_object(sphere2)
+        //.add_object(sphere3)
         .add_light(light);
 
     let canvas = scene.raytrace();
